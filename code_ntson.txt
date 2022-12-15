@@ -1,0 +1,1860 @@
+###################################DL
+ConnectionHelper.cs
+
+using MISA.EventManager.Common;
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MISA.EventManager.DL
+{
+    public class ConnectionHelperDL : IDisposable
+    {
+        /// <summary>
+        /// Chuỗi kết nối database
+        /// </summary>
+        /// Created by: NTSON - 10/09/2021
+        private readonly string _ConectionManagement = Utilitis.GetConnectionString(AppSettingKey.KeyManagementDatabase);
+
+        /// <summary>
+        /// kết nối database
+        /// </summary>
+        /// Created by: NTSON - 10/09/2021
+        public SqlConnection Conn;
+
+        #region contructer
+        /// <summary>
+        /// Hàm khởi tạo không tham số
+        /// </summary>
+        /// Created by: NTSON - 10/09/2021
+        public ConnectionHelperDL()
+        {
+            //Conn = new SqlConnection(_ConectionManagement);
+            //if (Conn.State != System.Data.ConnectionState.Open)
+            //{
+            //    Conn.Open();
+            //}
+            string connectionString = Utilitis.GetConnectionString(AppSettingKey.KeyManagementDatabase);
+            this.InitConnection(connectionString);
+        }
+        /// <summary>
+        /// Khởi tạo connection truyền vào loại database làm việc
+        /// </summary>
+        /// <param name="workingDBType">chuỗi kết nối</param>
+        /// Created by: NTSON - 10/09/2021
+        public ConnectionHelperDL(Enumeration.WorkingDBType workingDBType)
+        {
+            this.InitConnection(Utilitis.GetConnectionString(workingDBType));
+        }
+        /// <summary>
+        /// Khởi tạo connection truyền vào conection string và loại database làm việc
+        /// <para>Ưu tiên connectionString, nếu rỗng thì lấy từ workingDBType</para>
+        /// </summary>
+        /// <param name="connectionString">Chuỗi kết nối</param>
+        /// <param name="workingDBType">loại db làm việc mặc định nếu không pass connectionString</param>
+        /// Created by: NTSON - 10/09/2021
+        public ConnectionHelperDL(string connectionString, Enumeration.WorkingDBType workingDBType = Enumeration.WorkingDBType.ManagementDatabase)
+        {
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                //gắn lại theo WorkingType, nếu không pass tham số
+                connectionString = Utilitis.GetConnectionString(workingDBType);
+            }
+
+            this.InitConnection(connectionString);
+        }
+        /// <summary>
+        /// Khởi tạo kết nối
+        /// </summary>
+        /// <param name="connectionString">chuỗi kết nối</param>
+        /// Created by: NTSON - 10/09/2021
+        private void InitConnection(string connectionString)
+        {
+            Conn = new SqlConnection(connectionString);
+            if (Conn.State != System.Data.ConnectionState.Open)
+            {
+                Conn.Open();
+            }
+        }
+        /// <summary>
+        /// Khởi tạo connection truyền vào conection string
+        /// </summary>
+        /// <param name="conectionString">chuỗi kết nối</param>
+        /// Created by: NTSON - 10/09/2021
+        public ConnectionHelperDL(string conectionString)
+        {
+            Conn = new SqlConnection(conectionString);
+            if (Conn.State != System.Data.ConnectionState.Open)
+            {
+                Conn.Open();
+            }
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Hàm hủy đóng chuỗi kết nối
+        /// </summary>
+        public void Dispose()
+        {
+            if (Conn.State != System.Data.ConnectionState.Closed)
+            {
+                Conn.Close();
+            }
+            Conn.Dispose();
+        }
+    }
+}
+
+#################################DLBase.cs
+
+using MISA.EventManager.BO;
+using MISA.EventManager.Common;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using static MISA.EventManager.Common.Enumeration;
+
+namespace MISA.EventManager.DL
+{
+    /// <summary>
+    /// Lớp chứa các hàm tương tác database
+    /// </summary>
+    /// <typeparam name="T">kiểu giá trị</typeparam>
+    /// Created by: NTSON - 10/09/2021
+    public class DLBase
+    {
+        #region Declare
+
+        protected const string mscProcInsert = "{0}.Proc_Insert{1}";
+        protected const string mscProcUpdate = "{0}.Proc_Update{1}";
+        protected const string mscProcDelete = "{0}.Proc_Delete{1}";
+        protected const string mscProcSelect = "{0}.Proc_Select{1}";
+        protected const string mscTableSchema = "dbo";
+
+        /// Loại DB làm việc
+        /// </summary>
+        /// Created by: NTSON - 10/09/2021
+        protected Enumeration.WorkingDBType _workingDBType = Enumeration.WorkingDBType.ManagementDatabase;
+
+        /// <summary>
+        /// Loại DB Làm việc
+        /// </summary>
+        /// Created by: NTSON - 10/09/2021
+        public virtual Enumeration.WorkingDBType WorkingDBType
+        {
+            get
+            {
+                return _workingDBType;
+            }
+        }
+
+        #endregion Declare
+
+        /// <summary>
+        /// Hàm lưu đối tượng vào database
+        /// </summary>
+        /// <param name="obj">Đối tượng cần lưu</param>
+        /// <param name="storedProcedure">tên store</param>
+        /// <returns>True: cất thành công, False: cất thất bại</returns>
+        /// Created by: NTSON - 10/09/2021
+        public bool SaveData(object obj, [Optional] string sConnection, String storedProcedure = "")
+        {
+            bool bResult = false;
+            SqlConnection conn = GetSqlConnection(sConnection);
+         
+            try
+            {
+                if ((string.IsNullOrEmpty(storedProcedure)))
+                {
+                    storedProcedure = this.GetStoredProcedureName(obj as MISAEntity);
+                }
+
+                if (this.ExecuteNonQuery(storedProcedure, obj, conn) > 0)
+                {
+                    bResult = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                CommonFunctionLogging.HandleException(ex);
+                throw ex;
+            }
+            finally
+            {
+                if (conn.State != System.Data.ConnectionState.Closed)
+                {
+                    conn.Close();
+                    conn.Dispose();
+                }
+            }
+
+            return bResult;
+        }
+
+        /// <summary>
+        /// Build động câu query lên SQL theo editMode
+        /// </summary>
+        /// <param name="obj">obj đem đi cất</param>
+        /// <returns></returns>
+        /// Created by: tnduc - 05.10.2018
+        public string GetStoredProcedureName(MISAEntity obj)
+        {
+            string tpl = string.Empty;
+            switch (obj.EditMode)
+            {
+                case EditMode.Add:
+                    tpl = mscProcInsert;
+                    break;
+
+                case EditMode.Delete:
+                    tpl = mscProcDelete;
+                    break;
+
+                case EditMode.Edit:
+                    tpl = mscProcUpdate;
+                    break;
+            }
+            return this.GenerateStoreName(tpl, obj.GetType().Name, obj.TableSchema);
+        }
+
+        /// <summary>
+        /// Build câu lệnh SQL động
+        /// </summary>
+        /// <param name="storeTemplate">Cấu trúc Store</param>
+        /// <param name="tableName">Tên bảng tham chiếu</param>
+        /// <param name="schema">dbo</param>
+        /// <returns></returns>
+        /// Created by: tnduc - 05.10.2018
+        private string GenerateStoreName(string storeTemplate, string tableName, string schema = "")
+        {
+            if (string.IsNullOrEmpty(schema))
+            {
+                schema = mscTableSchema;
+            }
+            return string.Format(storeTemplate, schema, tableName);
+        }
+
+        /// <summary>
+        /// Hàm Thực hiện một store chỉ trả về số dòng ảnh hưởng (insert, update, delete)
+        /// </summary>
+        /// <param name="storeName">tên store</param>
+        /// <param name="param">Các biến truyền vào</param>
+        /// <returns>số dòng ảnh hưởng</returns>
+        /// Created by: NTSON - 10/09/2021
+        public virtual int ExecuteNonQuery(string storeName, object obj, SqlConnection conn, [Optional] SqlTransaction ts)
+        {
+            var result = 0;
+            var objType = obj == null ? null : obj.GetType();
+            var objMISAEntity = obj as MISAEntity;
+            PropertyInfo pi = null;
+
+            var cmd = new SqlCommand(storeName, conn);
+            cmd.CommandType = CommandType.StoredProcedure;
+            if (ts != null)
+            {
+                cmd.Transaction = ts;
+            }
+            SqlCommandBuilder.DeriveParameters(cmd);
+            try
+            {
+                int iParameters = cmd.Parameters.Count;
+                if (iParameters > 1 && objType != null)
+                {
+                    for (int i = 1; i < iParameters; i++)
+                    {
+                        string propetyName = cmd.Parameters[i].ParameterName.Replace("@", "");
+                        pi = objType.GetProperty(propetyName);
+                        if (pi != null)
+                        {
+                            switch (propetyName)
+                            {
+                                case "CreatedDate":
+                                    if (objMISAEntity.EditMode == Enumeration.EditMode.Add)
+                                    {
+                                        pi.SetValue(obj, DateTime.Now, null);
+                                    }
+                                    break;
+
+                                case "ModifiedDate":
+                                    pi.SetValue(obj, DateTime.Now, null);
+                                    break;
+
+                                case "CreatedBy":
+                                    if (objMISAEntity.EditMode == Enumeration.EditMode.Add)
+                                    {
+                                        pi.SetValue(obj, SessionUtilitis.GetSession(Constant.mscSessionEmployeeCode), null);
+                                    }
+                                    break;
+
+                                case "ModifiedBy":
+                                    pi.SetValue(obj, SessionUtilitis.GetSession(Constant.mscSessionEmployeeCode), null);
+                                    break;
+
+                                default:
+                                    break;
+                            }
+
+                            if ((pi.GetValue(obj, null) == null))
+                            {
+                                cmd.Parameters[i].Value = DBNull.Value;
+                            }
+                            else
+                            {
+                                cmd.Parameters[i].Value = pi.GetValue(obj, null);
+                            }
+                        }
+                    }
+                }
+
+                result = cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                //ghi log
+                CommonFunctionLogging.HandleException(ex);
+                throw ex;
+            }
+
+            //finally
+            //{
+            //    if (conn.State != System.Data.ConnectionState.Closed)
+            //    {
+            //        conn.Close();
+            //        conn.Dispose();
+            //    }
+
+            //}
+
+            return result;
+        }
+
+        /// <summary>
+        /// Hàm thực hiện lấy về một danh sách kết quả
+        /// </summary>
+        /// <param name="storeName">Tên store</param>
+        /// <param name="param">Tham số đầu vào store</param>
+        /// <returns>danh sách kết quả</returns>
+        /// Created by: NTSON - 10/09/2021
+        public List<T> ExcuteReader<T>(string storeName, object[] param)
+        {
+            var result = new List<T>();
+            using (var mainBaseDL = new ConnectionHelperDL(this.WorkingDBType))
+            {
+                var cmd = new SqlCommand(storeName, mainBaseDL.Conn);
+                cmd.CommandType = CommandType.StoredProcedure;
+                SqlCommandBuilder.DeriveParameters(cmd);
+                try
+                {
+                    int countParamInStore = cmd.Parameters.Count;
+                    if (countParamInStore > 1 && param != null && param.Length > 0)
+                    {
+                        for (int i = 1; i < countParamInStore; i++)
+                        {
+                            if (i <= param.Length)
+                            {
+                                cmd.Parameters[i].Value = param[i - 1] != null ? param[i - 1] : DBNull.Value;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    var sqlDataReader = cmd.ExecuteReader();
+
+                    //chuyển dữ liệu về list obj
+                    while (sqlDataReader.Read())
+                    {
+                        var obj = Activator.CreateInstance<T>();
+                        for (int i = 0; i < sqlDataReader.FieldCount; i++)
+                        {
+                            string fieldName = sqlDataReader.GetName(i);
+                            if (obj.GetType().GetProperty(fieldName) != null && sqlDataReader[fieldName] != DBNull.Value)
+                            {
+                                obj.GetType().GetProperty(fieldName).SetValue(obj, sqlDataReader[fieldName], null);
+                            }
+                        }
+                        result.Add(obj);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //ghi log
+                    CommonFunctionLogging.HandleException(ex);
+                    throw ex;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Hàm thực hiện lấy về một đối tượng từ database
+        /// </summary>
+        /// <param name="storeName">tên store</param>
+        /// <param name="param">các tham số đầu vào</param>
+        /// <returns>đối tượng T</returns>
+        /// Created by: NTSON - 10/09/2021
+        public T GetObjectData<T>(string storeName, object[] param)
+        {
+            //chuyển dữ liệu obj (lấy row đầu tiên)
+            T obj = Activator.CreateInstance<T>();
+
+            using (var mainBaseDL = new ConnectionHelperDL())
+            {
+                var cmd = new SqlCommand(storeName, mainBaseDL.Conn);
+                cmd.CommandType = CommandType.StoredProcedure;
+                SqlCommandBuilder.DeriveParameters(cmd);
+                try
+                {
+                    int countParamInStore = cmd.Parameters.Count;
+                    if (countParamInStore > 1 && param != null && param.Length > 0)
+                    {
+                        for (int i = 1; i < countParamInStore; i++)
+                        {
+                            if (i <= param.Length)
+                            {
+                                cmd.Parameters[i].Value = param[i - 1] != null ? param[i - 1] : DBNull.Value;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    var sqlDataReader = cmd.ExecuteReader();
+                    while (sqlDataReader.Read())
+                    {
+                        for (int i = 0; i < sqlDataReader.FieldCount; i++)
+                        {
+                            string fieldName = sqlDataReader.GetName(i);
+                            if (obj.GetType().GetProperty(fieldName) != null && sqlDataReader[fieldName] != DBNull.Value)
+                            {
+                                obj.GetType().GetProperty(fieldName).SetValue(obj, sqlDataReader[fieldName], null);
+                            }
+                        }
+
+                        // thoát vòng lặp khi đọc xong dòng đầu
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //ghi log
+                    CommonFunctionLogging.HandleException(ex);
+                    throw ex;
+                }
+            }
+            return obj;
+        }
+
+        /// <summary>
+        /// Hàm lấy về một giá trị trong database
+        /// </summary>
+        /// <param name="storeName">tên store</param>
+        /// <param name="param">các tham số truyền vào</param>
+        /// <returns></returns>
+        /// Created by: NTSON - 10/09/2021
+        public object ExecuteScalar(string storeName, object[] param, [Optional] SqlTransaction ts)
+        {
+            var result = new object();
+            using (var oConnectionHelper = new ConnectionHelperDL())
+            {
+                var cmd = new SqlCommand(storeName, oConnectionHelper.Conn);
+                cmd.CommandType = CommandType.StoredProcedure;
+                SqlCommandBuilder.DeriveParameters(cmd);
+
+                if (ts != null)
+                {
+                    oConnectionHelper.Conn.BeginTransaction();
+                }
+
+                try
+                {
+                    int iParameters = cmd.Parameters.Count;
+                    if (param != null && param.Length > 0 && iParameters > 1)
+                    {
+                        for (int i = 1; i < iParameters; i++)
+                        {
+                            if (i <= param.Length)
+                            {
+                                cmd.Parameters[i].Value = param[i - 1] != null ? param[i - 1] : DBNull.Value;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                    }
+
+                    result = cmd.ExecuteScalar();
+
+                    if (ts != null)
+                    {
+                        ts.Commit();
+                    }
+
+                    //transaction.Commit();
+                }
+                catch (Exception ex)
+                {
+                    //transaction.Rollback();
+                    //ghi log
+                    if (ts != null)
+                    {
+                        ts.Rollback();
+                    }
+                    CommonFunctionLogging.HandleException(ex);
+                    throw ex;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Hàm Thực hiện một store chỉ trả về số dòng ảnh hưởng (insert, update, delete)
+        /// </summary>
+        /// <param name="storeName">tên store</param>
+        /// <param name="param">Các biến truyền vào</param>
+        /// <returns>số dòng ảnh hưởng</returns>
+        /// Created by: NTSON - 10/09/2021
+        public virtual int ExecuteNonQuery(string storeName, object[] lstParameters, [Optional] string sConnection, [Optional] SqlTransaction ts)
+        {
+            var result = 0;
+            SqlConnection conn = GetSqlConnection(sConnection);
+            //SqlConnection conn;
+            //if (string.IsNullOrEmpty(sConnection))
+            //{
+            //    conn = new ConnectionHelperDL().Conn;
+            //}
+            //else
+            //{
+            //    conn = new ConnectionHelperDL(sConnection).Conn;
+            //}
+
+            var cmd = new SqlCommand(storeName, conn);
+            cmd.CommandType = CommandType.StoredProcedure;
+            if (ts != null)
+            {
+                cmd.Transaction = ts;
+            }
+            SqlCommandBuilder.DeriveParameters(cmd);
+            try
+            {
+                int iParameters = cmd.Parameters.Count;
+                if (lstParameters != null && lstParameters.Length > 0 && iParameters > 1)
+                {
+                    for (int i = 1; i < iParameters; i++)
+                    {
+                        if (lstParameters.Length >= i)
+                        {
+                            cmd.Parameters[i].Value = lstParameters[i - 1] != null ? lstParameters[i - 1] : DBNull.Value;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                }
+                result = cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                //ghi log
+                CommonFunctionLogging.HandleException(ex);
+                throw ex;
+            }
+            finally
+            {
+                if (conn.State != System.Data.ConnectionState.Closed)
+                {
+                    conn.Close();
+                    conn.Dispose();
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Hàm gọi store lấy về một trang danh sách
+        /// </summary>
+        /// <typeparam name="T">Đối tượng cần lấy trang danh sách</typeparam>
+        /// <param name="storeName">Tên Store</param>
+        /// <param name="pageIndex">Trang cần lấy</param>
+        /// <param name="pageSize">Số bản ghi trên một trang</param>
+        /// <param name="where">Điều kiện tìm kiếm</param>
+        /// <param name="sort">Điều kiện sắp xếp</param>
+        /// <param name="sConnection">Connection nếu muốn kết nối tới DB không phải mặc định</param>
+        /// <returns>Trang danh sách cần lấy</returns>
+        /// Created by: NTSON - 10/09/2021
+        public Paging<T> GetPaging<T>(string storeName, int pageIndex, int pageSize, string where, string sort, [Optional] string sConnection)
+        {
+            var result = new Paging<T>();
+            SqlConnection conn = GetSqlConnection(sConnection);
+            //SqlConnection conn;
+            //if (string.IsNullOrEmpty(sConnection))
+            //{
+            //    conn = new ConnectionHelperDL().Conn;
+            //}
+            //else
+            //{
+            //    conn = new ConnectionHelperDL(sConnection).Conn;
+            //}
+
+            var cmd = new SqlCommand(storeName, conn);
+            cmd.CommandType = CommandType.StoredProcedure;
+            int totalRecord = 0;
+
+            try
+            {
+                cmd.Parameters.AddWithValue("@PageIndex", pageIndex);
+                cmd.Parameters.AddWithValue("@PageSize", pageSize);
+                cmd.Parameters.AddWithValue("@Where", where);
+                cmd.Parameters.AddWithValue("@Sort", sort);
+                cmd.Parameters.Add("@TotalRecord", SqlDbType.Int);
+                cmd.Parameters["@TotalRecord"].Direction = ParameterDirection.Output;
+
+                using (var sqlDataReader = cmd.ExecuteReader())
+                {
+                    //chuyển dữ liệu về list obj
+                    result.Items = new List<T>();
+                    while (sqlDataReader.Read())
+                    {
+                        var obj = Activator.CreateInstance<T>();
+                        for (int i = 0; i < sqlDataReader.FieldCount; i++)
+                        {
+                            string fieldName = sqlDataReader.GetName(i);
+                            if (obj.GetType().GetProperty(fieldName) != null && sqlDataReader[fieldName] != DBNull.Value)
+                            {
+                                obj.GetType().GetProperty(fieldName).SetValue(obj, sqlDataReader[fieldName], null);
+                            }
+                        }
+                        result.Items.Add(obj);
+                    }
+                }
+
+                if (cmd.Parameters["@TotalRecord"].Value != null)
+                {
+                    int.TryParse(cmd.Parameters["@TotalRecord"].Value.ToString(), out totalRecord);
+                }
+                result.TotalRecord = totalRecord;
+            }
+            catch (Exception ex)
+            {
+                //ghi log
+                CommonFunctionLogging.HandleException(ex);
+                throw ex;
+            }
+            finally
+            {
+                if (conn.State != System.Data.ConnectionState.Closed)
+                {
+                    conn.Close();
+                    conn.Dispose();
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Hàm gọi store lấy về một trang danh sách
+        /// </summary>
+        /// <typeparam name="T">Đối tượng cần lấy trang danh sách</typeparam>
+        /// <param name="storeName">Tên Store</param>
+        /// <param name="pageIndex">Trang cần lấy</param>
+        /// <param name="pageSize">Số bản ghi trên một trang</param>
+        /// <param name="where">Điều kiện tìm kiếm</param>
+        /// <param name="sort">Điều kiện sắp xếp</param>
+        /// <param name="lstAdditionalParam">danh sách tham số bổ sung nếu có</param>
+        /// <param name="connectionString">Connection nếu muốn kết nối tới DB không phải mặc định</param>
+        /// <returns>Trang danh sách cần lấy</returns>
+        /// Created by: NTSON - 10/09/2021
+        public Paging<T> GetPaging<T>(string storeName, int pageIndex, int pageSize, string where, string sort, SqlParameter[] lstAdditionalParam, [Optional] string connectionString)
+        {
+            var result = new Paging<T>();
+            SqlConnection conn = GetSqlConnection(connectionString);
+
+            var cmd = new SqlCommand(storeName, conn);
+            cmd.CommandType = CommandType.StoredProcedure;
+            int totalRecord = 0;
+
+            try
+            {
+                cmd.Parameters.AddWithValue("@PageIndex", pageIndex);
+                cmd.Parameters.AddWithValue("@PageSize", pageSize);
+                cmd.Parameters.AddWithValue("@Where", where);
+                cmd.Parameters.AddWithValue("@Sort", sort);
+                cmd.Parameters.Add("@TotalRecord", SqlDbType.Int);
+                cmd.Parameters["@TotalRecord"].Direction = ParameterDirection.Output;
+
+                if (lstAdditionalParam != null && lstAdditionalParam.Length > 0)
+                {
+                    cmd.Parameters.AddRange(lstAdditionalParam);
+                }
+
+                using (var sqlDataReader = cmd.ExecuteReader())
+                {
+                    //chuyển dữ liệu về list obj
+                    result.Items = new List<T>();
+                    while (sqlDataReader.Read())
+                    {
+                        var obj = Activator.CreateInstance<T>();
+                        for (int i = 0; i < sqlDataReader.FieldCount; i++)
+                        {
+                            string fieldName = sqlDataReader.GetName(i);
+                            if (obj.GetType().GetProperty(fieldName) != null && sqlDataReader[fieldName] != DBNull.Value)
+                            {
+                                obj.GetType().GetProperty(fieldName).SetValue(obj, sqlDataReader[fieldName], null);
+                            }
+                        }
+                        result.Items.Add(obj);
+                    }
+                }
+
+                if (cmd.Parameters["@TotalRecord"].Value != null)
+                {
+                    int.TryParse(cmd.Parameters["@TotalRecord"].Value.ToString(), out totalRecord);
+                }
+                result.TotalRecord = totalRecord;
+            }
+            catch (Exception ex)
+            {
+                //ghi log
+                CommonFunctionLogging.HandleException(ex);
+                throw ex;
+            }
+            finally
+            {
+                if (conn.State != System.Data.ConnectionState.Closed)
+                {
+                    conn.Close();
+                    conn.Dispose();
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Hàm thực hiện lấy về một danh sách kết quả với một chuỗi kết nối db truyền vào
+        /// </summary>
+        /// <param name="storeName">Tên store</param>
+        /// <param name="param">Tham số đầu vào store</param>
+        /// <param name="sConnection">Chuỗi kết nối DB</param>
+        /// <returns>danh sách kết quả</returns>
+        /// Created by: NTSON - 10/09/2021
+        public List<T> ExcuteReader<T>(string storeName, object[] param, [Optional] string sConnection)
+        {
+            var result = new List<T>();
+
+            SqlConnection conn;
+            if (string.IsNullOrEmpty(sConnection))
+            {
+                conn = new ConnectionHelperDL().Conn;
+            }
+            else
+            {
+                conn = new ConnectionHelperDL(sConnection).Conn;
+            }
+            var cmd = new SqlCommand(storeName, conn);
+            cmd.CommandType = CommandType.StoredProcedure;
+            SqlCommandBuilder.DeriveParameters(cmd);
+
+            try
+            {
+                int countParamInStore = cmd.Parameters.Count;
+                if (countParamInStore > 1 && param != null && param.Length > 0)
+                {
+                    for (int i = 1; i < countParamInStore; i++)
+                    {
+                        if (i <= param.Length)
+                        {
+                            cmd.Parameters[i].Value = param[i - 1] != null ? param[i - 1] : DBNull.Value;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                }
+                var sqlDataReader = cmd.ExecuteReader();
+
+                //chuyển dữ liệu về list obj
+                while (sqlDataReader.Read())
+                {
+                    var obj = Activator.CreateInstance<T>();
+                    for (int i = 0; i < sqlDataReader.FieldCount; i++)
+                    {
+                        string fieldName = sqlDataReader.GetName(i);
+                        if (obj.GetType().GetProperty(fieldName) != null && sqlDataReader[fieldName] != DBNull.Value)
+                        {
+                            obj.GetType().GetProperty(fieldName).SetValue(obj, sqlDataReader[fieldName], null);
+                        }
+                    }
+                    result.Add(obj);
+                }
+            }
+            catch (Exception ex)
+            {
+                //ghi log
+                CommonFunctionLogging.HandleException(ex);
+                throw ex;
+            }
+            finally
+            {
+                if (conn.State != System.Data.ConnectionState.Closed)
+                {
+                    conn.Close();
+                    conn.Dispose();
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Trả về connection theo tham số truyền vào
+        /// </summary>
+        /// <param name="connectionString">chuỗi kết nối nếu có</param>
+        /// <returns>Đối tượng SqlConnection thực hiện thao tác với db</returns>
+        /// created by nxcuong 15.02.2019
+        private SqlConnection GetSqlConnection(string connectionString = "")
+        {
+            return new ConnectionHelperDL(connectionString, this.WorkingDBType).Conn;
+        }
+    }
+}
+
+####################################BLBase.cs
+
+using MISA.EventManager.BO;
+using MISA.EventManager.Common;
+using MISA.EventManager.DL;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MISA.EventManager.BL
+{
+    /// <summary>
+    /// Lớp BL Base
+    /// </summary>
+    /// Created by: NTSON - 10/09/2021
+    public class BLBase
+    {
+        /// <summary>
+        /// Lưu thông tin dữ liệu
+        /// </summary>
+        /// <returns></returns>
+        /// Created by: NTSON - 10/09/2021
+        public bool SaveData(object obj)
+        {
+            bool bResult = false;
+            DLBase oDLBase = new DLBase();
+            bResult = oDLBase.SaveData(obj);
+            return bResult;
+        }
+
+        /// <summary>
+        /// Hàm tạo điều kiện sắp xếp cho sql thực thi
+        /// </summary>
+        /// <param name="sort">Sort</param>
+        /// <returns>Câu điều kiện sắp xếp</returns>
+        /// Created by: NTSON - 10/09/2021
+        public string BuildSortSql(Sort sort)
+        {
+            string result = Constant.sortDefault;
+            if (sort != null)
+            {
+                if (!string.IsNullOrEmpty(sort.FiledName))
+                {
+                    if (sort.SortType == Enumeration.SortType.DESC)
+                    {
+                        result = Utilitis.SafeSqlLiteralFieldName(sort.FiledName) + " DESC";
+                    }
+                    else if (sort.SortType == Enumeration.SortType.ASC)
+                    {
+                        result = Utilitis.SafeSqlLiteralFieldName(sort.FiledName) + " ASC";
+                    }
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Hàm tạo điều kiện sắp xếp cho sql thực thi không defaullt
+        /// </summary>
+        /// <param name="sort">Sort</param>
+        /// <returns>Câu điều kiện sắp xếp</returns>
+        /// Created by: NTSON - 10/09/2021
+        public string BuildSortNoDefaultSql(Sort sort)
+        {
+            string result = string.Empty;
+            if (sort != null)
+            {
+                if (!string.IsNullOrEmpty(sort.FiledName))
+                {
+                    if (sort.SortType == Enumeration.SortType.DESC)
+                    {
+                        result = Utilitis.SafeSqlLiteralFieldName(sort.FiledName) + " DESC";
+                    }
+                    else if (sort.SortType == Enumeration.SortType.ASC)
+                    {
+                        result = Utilitis.SafeSqlLiteralFieldName(sort.FiledName) + " ASC";
+                    }
+                }
+            }
+            return result;
+        }
+        /// <summary>
+        /// Hàm tạo câu điều kiện filter trong Sql
+        /// </summary>
+        /// <param name="filters">Danh sách điều kiện tìm kiếm</param>
+        /// <returns>Câu điều kiện filter trong Sql</returns>
+        /// Created by: NTSON - 10/09/2021
+        public string BuildWhereSql(List<Filter> filters, List<Filter> filtersOr)
+        {
+            var where = new StringBuilder();
+            if (filters != null || filtersOr != null)
+            {
+                where.Append("where (1 = 1)");
+                if (filters != null && filters.Count > 0)
+                {
+                    foreach (var filter in filters)
+                    {
+                        where.Append(BuildOneAfterWhereSql("AND", filter));
+                    }
+                }
+
+                if (filtersOr != null && filtersOr.Count > 0)
+                {
+                    where.Append(" And ( (1=0)");
+                    foreach (var filter in filtersOr)
+                    {
+                        where.Append(BuildOneAfterWhereSql("OR", filter));
+                    }
+                    where.Append(" )");
+                }
+            }
+            return where.ToString().Trim();
+        }
+        /// <summary>
+        /// Hàm tạo câu điều kiện filter trong Sql không buil default câu where
+        /// </summary>
+        /// <param name="filters">Danh sách điều kiện tìm kiếm</param>
+        /// <param name="filtersOr">Danh sách điều kiện tìm kiếm</param>
+        /// <returns>Câu điều kiện filter trong Sql</returns>
+        /// Created by: NTSON - 10/09/2021
+        public string BuildWhereNotDefaultWhereSql(List<Filter> filters, List<Filter> filtersOr)
+        {
+            var where = new StringBuilder();
+            if (filters != null || filtersOr != null)
+            {
+                if (filters != null && filters.Count > 0)
+                {
+                    foreach (var filter in filters)
+                    {
+                        where.Append(BuildOneAfterWhereSql("AND", filter));
+                    }
+                }
+
+                if (filtersOr != null && filtersOr.Count > 0)
+                {
+                    where.Append(" And ( (1=0)");
+                    foreach (var filter in filtersOr)
+                    {
+                        where.Append(BuildOneAfterWhereSql("OR", filter));
+                    }
+                    where.Append(" )");
+                }
+            }
+
+            return where == null ? where.ToString() : where.ToString().Trim();
+        }
+        /// <summary>
+        /// Hàm build một điều kiện sau where
+        /// </summary>
+        /// <param name="operatorMatching">toán tử nối [AND,OR]</param>
+        /// <param name="filter">Filter object chứa điều kiện</param>
+        /// <returns>Câu điều kiện sql sau where</returns>
+        /// Created by: NTSON - 10/09/2021
+        public string BuildOneAfterWhereSql(string operatorMatching, Filter filter)
+        {
+            if (!string.IsNullOrEmpty(operatorMatching) && filter != null)
+            {
+                string fieldName = Utilitis.SafeSqlLiteralFieldName(filter.FieldName);
+                if (filter.DataType == Enumeration.DataType.Date)
+                {
+                    fieldName = "CAST(" + fieldName + " AS Date)";
+                }
+
+                switch (filter.FilterType)
+                {
+                    case Enumeration.FilterType.Like:
+                        return string.Format(" {0} {1} LIKE N'%{2}%'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralLike(filter.Value));
+
+                    case Enumeration.FilterType.EqualString:
+                        return string.Format(" {0} {1} = N'{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+
+                    case Enumeration.FilterType.EqualNumber:
+                        return string.Format(" {0} {1} = {2}", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+
+                    case Enumeration.FilterType.Less:
+                        if (filter.DataType == Enumeration.DataType.Number)
+                        {
+                            return string.Format(" {0} {1} < {2}", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else if (filter.DataType == Enumeration.DataType.Date)
+                        {
+                            return string.Format(" {0} {1} < '{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else
+                        {
+                            return string.Format(" {0} {1} < N'{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+
+                    case Enumeration.FilterType.LessEqual:
+                        if (filter.DataType == Enumeration.DataType.Number)
+                        {
+                            return string.Format(" {0} {1} <= {2}", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else if (filter.DataType == Enumeration.DataType.Date)
+                        {
+                            return string.Format(" {0} {1} <= '{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else
+                        {
+                            return string.Format(" {0} {1} <= N'{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+
+                    case Enumeration.FilterType.Greater:
+                        if (filter.DataType == Enumeration.DataType.Number)
+                        {
+                            return string.Format(" {0} {1} > {2}", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else if (filter.DataType == Enumeration.DataType.Date)
+                        {
+                            return string.Format(" {0} {1} > '{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else
+                        {
+                            return string.Format(" {0} {1} > N'{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+
+                    case Enumeration.FilterType.GreaterEqual:
+                        if (filter.DataType == Enumeration.DataType.Number)
+                        {
+                            return string.Format(" {0} {1} >= {2}", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else if (filter.DataType == Enumeration.DataType.Date)
+                        {
+                            return string.Format(" {0} {1} >= '{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+                        else
+                        {
+                            return string.Format(" {0} {1} >= N'{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+                        }
+
+                    case Enumeration.FilterType.StartWith:
+                        return string.Format(" {0} {1} LIKE N'{2}%'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+
+                    case Enumeration.FilterType.EndWidth:
+                        return string.Format(" {0} {1} LIKE N'%{2}'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+
+                    case Enumeration.FilterType.NotLike:
+                        return string.Format(" {0} {1} NOT LIKE N'%{2}%'", operatorMatching, fieldName, Utilitis.SafeSqlLiteralEqual(filter.Value));
+
+                    default:
+                        return string.Empty;
+                }
+            }
+            else
+            {
+                return string.Empty;
+            }
+
+        }
+
+    }
+}
+
+####################################BLEvent.cs
+
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using MISA.EventManager.BO;
+using MISA.EventManager.DL;
+
+namespace MISA.EventManager.BL
+{
+    public class BLEvent : BLBase
+    {
+        private readonly DLEvent _DLEvent;
+
+        /// <summary>
+        /// Hàm khởi tạo
+        /// </summary>
+        public BLEvent()
+        {
+            _DLEvent = new DLEvent();
+        }
+
+        /// <summary>
+        /// Hàm xử lý lấy danh sách sự kiện
+        /// </summary>
+        /// <param name="paging">thông tin trang cần lấy</param>
+        /// <returns>Paging<EventManager></returns>
+        /// Created by: NTSON - 13/10/2021
+        public Paging<Event> GetPagingEvent(Paging<Event> paging)
+        {
+            Paging<Event> data = null;
+            //build câu where
+            //build ĐK sort
+            string where = this.BuildWhereSql(paging.Filters, paging.FiltersOr);
+            string sort = this.BuildSortSql(paging.Sort);
+            data = _DLEvent.GetPagingEvent(paging.PageIndex, paging.PageSize, where, sort);
+            return data;
+        }
+
+        /// <summary>
+        /// Thêm sự kiện
+        /// </summary>
+        /// <param name="oPackage">Đối tượng cần lưu</param>
+        /// <returns>true: thành công, false: thất bại</returns>
+        /// Create by: NTSON - 13/10/2021
+        public bool InsertEvent(Event oPackageType)
+        {
+            return _DLEvent.InsertEvent(oPackageType);
+        }
+
+        /// <summary>
+        /// Sửa sự kiện
+        /// </summary>
+        /// <param name="oPackage">Đối tượng cần lưu</param>
+        /// <returns>true: thành công, false: thất bại</returns>
+        /// Create by: NTSON - 13/10/2021
+        public bool UpdateEvent(Event oPackageType)
+        {
+            return _DLEvent.UpdateEvent(oPackageType);
+        }
+
+        /// <summary>
+        /// Xóa sự kiện theo ID
+        /// </summary>
+        /// <param name="id">id</param>
+        /// <returns>true: thành công, false: thất bại</returns>
+        /// Create by: NTSON - 13/10/2021
+        public bool DeleteEventByID(int id)
+        {
+            return _DLEvent.DeleteEventByID(id);
+        }
+        /// <summary>
+        /// Lấy ra sự kiện theo id
+        /// </summary>
+        /// <param name="id">id sự kiện</param>
+        /// <returns>Trả về 1 Event</returns>
+        /// Created by natuan1 - 23-09-2021
+        public Event GetEventByID(int id)
+        {
+            return _DLEvent.GetEventByID(id);
+        }
+    }
+}
+
+####################################DLEvent.cs
+
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using MISA.EventManager.BO;
+namespace MISA.EventManager.DL
+{
+    public class DLEvent : DLBase
+    {
+        /// <summary>
+        /// Hàm lấy một page danh sách sự kiện
+        /// </summary>
+        /// <param name="pageIndex">Page cần lấy</param>
+        /// <param name="pageSize">Số row trên một page</param>
+        /// <param name="where">Điều kiện lọc (sql)</param>
+        /// <param name="sort">Điều kiện sắp sếp</param>
+        /// <returns>Paging<EventManager></returns>
+        /// Created by: NTSON - 13/09/2021
+        public Paging<Event> GetPagingEvent(int pageIndex, int pageSize, string where, string sort)
+        {
+            return this.GetPaging<Event>("[dbo].[Proc_GetPagingEvent]", pageIndex, pageSize, where, sort);
+        }
+
+        /// <summary>
+        /// Thêm sự kiện
+        /// </summary>
+        /// <param name="obj">Đối tượng cần lưu</param>
+        /// <returns>true: thành công, false: thất bại</returns>
+        /// Create by: NTSON - 13/09/2021
+        public bool InsertEvent(Event obj)
+        {
+            return this.SaveData(obj, null, "dbo.Proc_InsertEvent");
+        }
+
+        /// <summary>
+        /// Sửa sự kiện
+        /// </summary>
+        /// <param name="obj">Đối tượng cần lưu</param>
+        /// <returns>true: thành công, false: thất bại</returns>
+        /// Create by: NTSON - 13/09/2021
+        public bool UpdateEvent(Event obj)
+        {
+            return this.SaveData(obj, null, "dbo.Proc_UpdateEvent");
+        }
+
+        /// <summary>
+        /// Xóa sự kiện theo ID
+        /// </summary>
+        /// <param name="id">id</param>
+        /// <returns>true: thành công, false: thất bại</returns>
+        /// Create by: NTSON - 13/09/2021
+        public bool DeleteEventByID(int id)
+        {
+            return this.ExecuteNonQuery("dbo.Proc_DeleteEventByID", new object[] { id }) > 0;
+        }
+        /// <summary>
+        /// Hàm lấy sự kiện theo id 
+        /// </summary>
+        /// <param name="id">ID sự kiện</param>
+        /// <returns>true nếu thành công , false nếu thất bại</returns>
+        /// Created by: natuan1 - 21-09-2021
+        public Event GetEventByID(int id)
+        {
+            return  this.GetObjectData<Event>("dbo.Proc_GetEventByID", new object[] { id });
+        }
+    }
+}
+
+######################Common
+SessionUtilitis.cs
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Web;
+
+namespace MISA.EventManager.Common
+{
+    /// <summary>
+    /// Lớp này chứa các hàm xử lý cache
+    /// </summary>
+    /// <typeparam name="T">kiểu giá trị value</typeparam>
+    /// Created by: NTSON - 10/09/2021
+    public static class SessionUtilitis
+    {
+        /// <summary>
+        /// Hàm này lấy giá trị của sesion
+        /// </summary>
+        /// <param name="key">tên session</param>
+        /// <returns>Thông tin được lưu trong session</returns>
+        /// Created by: NTSON - 10/09/2021
+        public static object GetSession(string key)
+        {
+            if (HttpContext.Current.Session != null && HttpContext.Current.Session[key] != null)
+            {
+                return HttpContext.Current.Session[key];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Thực hiện gán giá trị vào session
+        /// </summary>
+        /// <param name="key">Key session</param>
+        /// <param name="value">Giá trị cần lưu vào session</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void SetSession(string key, object value)
+        {
+            if (HttpContext.Current.Session != null)
+            {
+                HttpContext.Current.Session[key] = value;
+            }
+        }
+    }
+}
+
+
+######################Common
+Utilitis.cs
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Configuration;
+using System.Security.Cryptography;
+using System.IO;
+using System.Web;
+
+namespace MISA.EventManager.Common
+{
+    /// <summary>
+    /// Lớp này chứa các hàm sử dụng chung trong RegisterForSale
+    /// </summary>
+    /// Created by: NTSON 10/09/2021
+    public class Utilitis
+    {
+        /// <summary>
+        /// Hàm get config theo key
+        /// </summary>
+        /// <param name="key">tên config</param>
+        /// <returns>giá trị config</returns>
+        /// Created by: NTSON - 02/10/2018
+        public static string GetConfig(string key)
+        {
+            return ConfigurationManager.AppSettings.Get(key);
+        }
+
+        /// <summary>
+        /// Hàm lấy kết nối database
+        /// </summary>
+        /// <returns>chuỗi kêt nối</returns>
+        /// Created by: NTSON - 02/10/2018
+        public static string GetConnectionString(string keyConnection)
+        {
+            return ConfigurationManager.ConnectionStrings[keyConnection].ConnectionString;
+        }
+
+        /// <summary>
+        /// hàm lấy kết nối database theo workingDaType
+        /// </summary>
+        /// <param name="workingDBType">Môi trường làm việc</param>
+        /// <returns>chuỗi kết nối</returns>
+        /// Created by : NTSON 10/09/2021
+        public static string GetConnectionString(Enumeration.WorkingDBType workingDBType)
+        {
+            string appsettingKey = string.Empty;
+            switch (workingDBType)
+            {
+                case Enumeration.WorkingDBType.ManagementDatabase:
+                    appsettingKey = AppSettingKey.KeyManagementDatabase;
+                    break;
+                default:
+                    appsettingKey = AppSettingKey.KeyManagementDatabase;
+                    break;
+            }
+            return GetConnectionString(appsettingKey);
+        }
+
+        /// <summary>
+        /// Thực hiện lấy key trong appseting
+        /// </summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        /// Created by: NDNghia, 04-10-2018
+        public static string GetAppSetingKeys(string key)
+        {
+            return ConfigurationManager.AppSettings[key];
+        }
+
+        private string Key = "Dj+UeMrh6gH8rPQM9Q5fkg==";
+        private string IV = "vDHVg9u/d+PdZam++j6i9A==";
+
+        /// <summary>
+        /// Mã hóa Pass
+        /// </summary>
+        /// <param name="pass">Pass cần mã hóa</param>
+        /// <returns>Pass đã mã hóa</returns>
+        /// Created by: NTSON 02/10/2018
+        public string EncryptPass(string pass)
+        {
+            return EncryptString(pass, Key, IV);
+        }
+
+        /// <summary>
+        /// Mã hóa dữ liệu
+        /// </summary>
+        /// <param name="Str">Dữ liệu cần mã hóa</param>
+        /// <param name="Key">Key</param>
+        /// <param name="Salt">Salt</param>
+        /// <returns>Dữ liệu đã mã hóa</returns>
+        /// Created by: NTSON 02/10/2018
+        public string EncryptString(string Str, string Key, string Salt)
+        {
+            try
+            {
+                using (System.Security.Cryptography.Aes aes = new AesManaged())
+                {
+                    Rfc2898DeriveBytes deriveBytes = new Rfc2898DeriveBytes(Key, Encoding.UTF8.GetBytes(Salt));
+                    aes.Key = deriveBytes.GetBytes((int)(128 / 8.0));
+                    aes.IV = aes.Key;
+                    using (MemoryStream encryptionStream = new MemoryStream())
+                    {
+                        using (CryptoStream encrypt = new CryptoStream(encryptionStream, aes.CreateEncryptor(), CryptoStreamMode.Write))
+                        {
+                            byte[] utfD1 = UTF8Encoding.UTF8.GetBytes(Str);
+                            encrypt.Write(utfD1, 0, utfD1.Length);
+                            encrypt.FlushFinalBlock();
+                        }
+                        return Convert.ToBase64String(encryptionStream.ToArray());
+                    }
+                }
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Đọc template htm từ full đường dẫn
+        /// </summary>
+        /// <param name="path">Đường dẫn file template. . Ví dụ: HRNotify/Married</param>
+        /// <returns>Trả về nội dung được lưu trong file</returns>
+        /// Created by: NTSON 02/10/2018
+        public static string ReadTemplateFullPath(string path)
+        {
+            string fileName = HttpContext.Current.Server.MapPath(path);
+            if (File.Exists(fileName))
+            {
+                return File.ReadAllText(fileName);
+            }
+            else
+            {
+                CommonFunctionLogging.ErrorLogging("File " + path + " không tồn tại.");
+            }
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Giải mã
+        /// </summary>
+        /// <param name="pass"></param>
+        /// <returns></returns>
+        /// <remarks></remarks>
+        public string DecryptPass(string pass)
+        {
+            return DecryptString(pass, Key, IV);
+        }
+
+        /// <summary>
+        /// Decrypt encrypted string using AES
+        /// </summary>
+        /// <param name="Str"></param>
+        /// <param name="Key"></param>
+        /// <param name="Salt"></param>
+        /// <returns></returns>
+        /// <remarks></remarks>
+        public string DecryptString(string Str, string Key, string Salt)
+        {
+            try
+            {
+                using (Aes aes = new AesManaged())
+                {
+                    Rfc2898DeriveBytes deriveBytes = new Rfc2898DeriveBytes(Key, Encoding.UTF8.GetBytes(Salt));
+                    aes.Key = deriveBytes.GetBytes((int)(128 / 8.0));
+                    aes.IV = aes.Key;
+                    using (MemoryStream decryptionStream = new MemoryStream())
+                    {
+                        using (CryptoStream decrypt = new CryptoStream(decryptionStream, aes.CreateDecryptor(), CryptoStreamMode.Write))
+                        {
+                            byte[] encryptedData = Convert.FromBase64String(Str);
+                            decrypt.Write(encryptedData, 0, encryptedData.Length);
+                            decrypt.Flush();
+                        }
+                        byte[] decryptedData = decryptionStream.ToArray();
+                        return UTF8Encoding.UTF8.GetString(decryptedData, 0, decryptedData.Length);
+                    }
+                }
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Loại bỏ SQL Injection
+        /// Dùng cho toán tử Equal
+        /// </summary>
+        /// <param name="inputSQL">đầu vào</param>
+        /// <returns>Chuỗi đã được loại bỏ Injection</returns>
+        /// Created by: NTSON 04/12/2018
+        public static string SafeSqlLiteralEqual(string inputSQL)
+        {
+            inputSQL = inputSQL.Replace("'", "''");
+
+            return inputSQL;
+        }
+
+        /// <summary>
+        /// Loại bỏ sql injection
+        /// Dùng cho toán tử LIKE
+        /// </summary>
+        /// <param name="inputSQL">đầu vào</param>
+        /// <returns>Chuỗi đã được loại bỏ Injection</returns>
+        /// Created by: NTSON 04/12/2018
+        public static string SafeSqlLiteralLike(string inputSQL)
+        {
+            inputSQL = inputSQL.Replace("'", "''");
+            inputSQL = inputSQL.Replace("[", "[[]");
+            inputSQL = inputSQL.Replace("%", "[%]");
+            inputSQL = inputSQL.Replace("_", "[_]");
+
+            return inputSQL;
+        }
+
+        /// <summary>
+        /// Loại bỏ sql injection
+        /// Dùng cho việc build tên cột so sánh
+        /// </summary>
+        /// <param name="fieldName">tên cột</param>
+        /// <returns>Chuỗi đã được loại bỏ Injection</returns>
+        /// Created by: NTSON 04/12/2018
+        public static string SafeSqlLiteralFieldName(string fieldName)
+        {
+            fieldName = fieldName.Replace("'", "");
+            fieldName = fieldName.Replace(";", "");
+            return fieldName;
+        }
+    }
+}
+
+######################Common
+CommonFunctionLogging.cs
+
+using NLog;
+using NLog.Config;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MISA.EventManager.Common
+{
+    /// <summary>
+    /// Khởi tạo hàm thực hiện ghi log
+    /// </summary>
+    /// Created by: NTSON - 10/09/2021
+    public class CommonFunctionLogging
+    {
+
+        static CommonFunctionLogging()
+        {
+            LogManager.Configuration = new XmlLoggingConfiguration(AppDomain.CurrentDomain.BaseDirectory + "/NLog.config");
+        }
+
+        #region ConfigLog
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger m_ErrorLog;
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger ErrorLog
+        {
+            get
+            {
+                try
+                {
+                    if (m_ErrorLog == null)
+                    {
+                        m_ErrorLog = LogManager.GetLogger("ErrorLog");
+                    }
+                    InitLogVariable();
+                    return m_ErrorLog;
+                }
+                catch (Exception)
+                {
+                }
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger m_AuditingLog;
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger AuditingLog
+        {
+            get
+            {
+                try
+                {
+                    if (m_AuditingLog == null)
+                    {
+                        m_AuditingLog = LogManager.GetLogger("AuditingLog");
+                    }
+                    InitLogVariable();
+                    return m_AuditingLog;
+                }
+                catch (Exception)
+                {
+                }
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Hàm ghi log người dùng
+        /// </summary>
+        /// <param name="ErrorMessage"></param>
+        public static void HandleAuditingLog(string ErrorMessage)
+        {
+            if (AuditingLog != null)
+            {
+                AuditingLog.Error(ErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger m_APIErrorLog;
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger APIErrorLog
+        {
+            get
+            {
+                try
+                {
+                    if (m_APIErrorLog == null)
+                    {
+                        m_APIErrorLog = LogManager.GetLogger("APIErrorLog");
+                    }
+                    InitLogVariable();
+                    return m_APIErrorLog;
+                }
+                catch (Exception)
+                {
+                }
+                return null;
+            }
+        }
+
+
+
+        /// <summary>
+        /// Đặt custom variable cho logger
+        /// </summary>
+        private static void InitLogVariable()
+        {
+            //LogManager.Configuration.Variables["UserName"] = UrlHelper.UserName;
+            //LogManager.Configuration.Variables["CompanyCode"] = UrlHelper.CompanyCode;
+        }
+        #endregion
+
+        #region DoLog
+
+
+        /// <summary>
+        /// Thực hiện log error
+        /// </summary>
+        /// <param name="ErrorMessage">Thông tin lỗi</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void APIErrorLogging(string ErrorMessage)
+        {
+            if (APIErrorLog != null)
+            {
+                APIErrorLog.Error(ErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Thực hiện log exceltion
+        /// </summary>
+        /// <param name="ex">Exception</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void HandleAPIException(Exception ex)
+        {
+            APIErrorLogging(ex.Message + Environment.NewLine + ex.StackTrace);
+        }
+
+        /// <summary>
+        /// Thực hiện log error
+        /// </summary>
+        /// <param name="ErrorMessage">Thông tin lỗi</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void ErrorLogging(string ErrorMessage)
+        {
+            if (ErrorLog != null)
+            {
+                ErrorLog.Error(ErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Thực hiện log exceltion
+        /// </summary>
+        /// <param name="ex">Exception</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void HandleException(Exception ex)
+        {
+            ErrorLogging(ex.Message + Environment.NewLine + ex.StackTrace);
+        }
+
+        #endregion
+    }
+}
+
+###################BO
+MISAEntity.cs
+
+using Newtonsoft.Json;
+using System;
+using static MISA.EventManager.Common.Enumeration;
+
+namespace MISA.EventManager.BO
+{
+    public class MISAEntity
+    {
+        [JsonIgnore]
+        public virtual string TableSchema { get; set; } = "dbo";
+
+        /// <summary>
+        /// Mode object        
+        /// </summary>
+        public EditMode EditMode { get; set; }
+
+        /// <summary>
+        /// Ngày tạo
+        /// </summary>
+        public Nullable<DateTime> CreatedDate { get; set; }
+
+        /// <summary>
+        /// Người tạo
+        /// </summary>
+        public string CreatedBy { get; set; }
+
+        /// <summary>
+        /// Ngày sửa
+        /// </summary>
+        public Nullable<DateTime> ModifiedDate { get; set; }
+
+        /// <summary>
+        /// Người tạo
+        /// </summary>
+        public string ModifiedBy { get; set; }
+    }
+
+}
+
+###################BO
+Event.cs
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace MISA.EventManager.BO
+{
+    /// <summary>
+    /// object sự kiện
+    /// </summary>
+    /// Created by: NTSON - 13/10/2021
+    public class Event : MISAEntity
+    {
+        ///<summary>
+        ///PK
+        ///</summary>
+        public int EventID { get; set; }
+
+        ///<summary>
+        //Tên sự kiện
+        ///</summary>
+        public string EventName { get; set; }
+
+        ///<summary>
+        //Avatar
+        ///</summary>
+        public string Avatar { get; set; }
+
+        ///<summary>
+        //Chủ đề
+        ///</summary>
+        public int Topic { get; set; }
+
+        ///<summary>
+        //Loại sự kiện
+        ///</summary>
+        public int EventType { get; set; }
+
+        ///<summary>
+        //Ngày bắt đầu
+        ///</summary>
+        public DateTime StartDate { get; set; }
+
+        ///<summary>
+        //Chi phí tham dự
+        ///</summary>
+        public decimal Cost { get; set; }
+
+        ///<summary>
+        //Tóm tắt
+        ///</summary>
+        public string Summary { get; set; }
+
+        ///<summary>
+        //Nội dung
+        ///</summary>
+        public string Content { get; set; }
+
+        ///<summary>
+        //Nội dung hữu ích
+        ///</summary>
+        public string BenefitContent { get; set; }
+
+        ///<summary>
+        //Đơn vị tổ chức
+        ///</summary>
+        public string OrganizationalUnit { get; set; }
+
+        ///<summary>
+        //Địa chỉ tổ chức
+        ///</summary>
+        public string Address { get; set; }
+
+        ///<summary>
+        //Số lượng tối đa tham gia
+        ///</summary>
+        public int Slot { get; set; }
+
+        ///<summary>
+        //Lịch trình
+        ///</summary>
+        public string Schedule { get; set; }
+
+        ///<summary>
+        //ID Diễn giả
+        ///</summary>
+        public Nullable<Guid> SpeakerID { get; set; }
+
+        ///<summary>
+        ///Trạng thái
+        ///</summary>
+        public bool Inactive { get; set; }
+    }
+}
