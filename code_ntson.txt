@@ -1858,3 +1858,201 @@ namespace MISA.EventManager.BO
         public bool Inactive { get; set; }
     }
 }
+
+################################LeadScoringController.cs
+
+using OfficeOpenXml;
+using OfficeOpenXml.Style;
+/// <summary>
+/// Action import file excel
+/// </summary>
+/// Created by: NTSON - 13/10/2021
+[Route("import-file")]
+public JsonResult ImportFile()
+{
+	var serviceResult = new ServiceResult() { Success = false };
+	try
+	{
+		var employee = SessionUtilitis.GetSession(Constant.mscKeySessionEmployee) as Employee;
+		if (employee != null || !string.IsNullOrEmpty(employee.EmployeeCode))
+		{
+			HttpPostedFileBase excelFile = Request.Files["UploadedFile"];
+			if (excelFile != null && System.IO.Path.GetExtension(excelFile.FileName) == ".xlsx")
+			{
+				ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+				using (ExcelPackage package = new ExcelPackage(excelFile.InputStream))
+				{
+					List<LeadScoring> lstLeadScoringImport = new List<LeadScoring>();
+					//Thực hiện đọc từ InputStream
+					var currentSheet = package.Workbook.Worksheets;
+					var ws = currentSheet.First();
+					//Bắt đầu đọc từ dòng thứ 2
+					for (int rw = 2; rw <= ws.Dimension.End.Row; rw++)
+					{
+						if (ws.Cells[rw, 3].Value != null)
+						{
+							lstLeadScoringImport.Add(new LeadScoring
+							{
+								FullName = ws.Cells[rw, 1].Text != null ? ws.Cells[rw, 1].Text : string.Empty,
+								Phone = ws.Cells[rw, 2].Text != null ? ws.Cells[rw, 2].Text : string.Empty,
+								Email = ws.Cells[rw, 3].Text != null ? ws.Cells[rw, 3].Text.Trim() : string.Empty,
+								Position = ws.Cells[rw, 4].Value != null ? ws.Cells[rw, 4].Value.ToString() : string.Empty,
+								Career = ws.Cells[rw, 5].Value != null ? ws.Cells[rw, 5].Value.ToString() : string.Empty,
+								Scale = ws.Cells[rw, 6].Value != null ? ws.Cells[rw, 6].Value.ToString() : string.Empty,
+								DoSurvey = Int32.Parse(ws.Cells[rw, 7].Value.ToString()),
+								OpenEmailNumber = Int32.Parse(ws.Cells[rw, 8].Value.ToString()),
+								VisitNumber = Int32.Parse(ws.Cells[rw, 9].Value.ToString()),
+								DownloadNumber = Int32.Parse(ws.Cells[rw, 10].Value.ToString()),
+								SeminarRegisterNumber = Int32.Parse(ws.Cells[rw, 11].Value.ToString()),
+								SeminarVisitNumber = Int32.Parse(ws.Cells[rw, 12].Value.ToString()),
+								TrialNumber = Int32.Parse(ws.Cells[rw, 13].Value.ToString()),
+								AdvisoryNumber = Int32.Parse(ws.Cells[rw, 14].Value.ToString()),
+								NewsletterRegister = ConvertStringToBoolen(ws.Cells[rw, 15].Value.ToString()),
+								MessengerInteration = ConvertStringToBoolen(ws.Cells[rw, 16].Value.ToString()),
+								ACT_Topic = ConvertStringToBoolen(ws.Cells[rw, 17].Value.ToString()),
+								CRM_Topic = ConvertStringToBoolen(ws.Cells[rw, 18].Value.ToString()),
+								HRM_Topic = ConvertStringToBoolen(ws.Cells[rw, 19].Value.ToString()),
+								BIL_Topic = ConvertStringToBoolen(ws.Cells[rw, 20].Value.ToString()),
+								RTL_Topic = ConvertStringToBoolen(ws.Cells[rw, 21].Value.ToString()),
+								MGM_Topic = ConvertStringToBoolen(ws.Cells[rw, 22].Value.ToString()),
+							});
+						}
+					}
+
+					//Đồng bộ
+					var result = _BLLeadScoring.SynchronizedLeadScoring(lstLeadScoringImport);
+
+					serviceResult.Success = true;
+					serviceResult.Data = result;
+				}
+			}
+			else
+			{
+				serviceResult.ErrorType = Enumeration.ServiceErrorType.ParamInvalid;
+			}
+		}
+	}
+	catch (Exception ex)
+	{
+		serviceResult.Success = false;
+		CommonFunctionLogging.HandleException(ex);
+		serviceResult.ErrorType = Enumeration.ServiceErrorType.Exception;
+	}
+	return Json(serviceResult, JsonRequestBehavior.AllowGet);
+}
+
+/// <summary>
+/// Hàm xuất khẩu điểm khách hàng
+/// </summary>
+/// <param name="eventID">mã sự kiện</param>
+/// Created by: NTSON - 15/10/2021
+public void ExportLeadScoring()
+{
+	try
+	{
+		var employee = SessionUtilitis.GetSession(Constant.mscKeySessionEmployee) as Employee;
+		if ((employee == null || string.IsNullOrEmpty(employee.EmployeeCode)))
+		{
+			Response.Redirect("/");
+		}
+		else
+		{
+			var obj = SessionUtilitis.GetSession("LeadScoringParams") as Paging<LeadScoring>;
+			if (obj != null)
+			{
+				obj.PageIndex = 1;
+				obj.PageSize = 100000;
+
+				Paging<LeadScoring> data = _BLLeadScoring.GetPagingLeadScoring(obj);
+				if (data.Items.Count > 0)
+				{
+					ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+					ExcelPackage ep = new ExcelPackage();
+					ExcelWorksheet Sheet = ep.Workbook.Worksheets.Add("Export");
+
+					Sheet.Cells["A1"].Value = "Họ tên";
+					Sheet.Cells["B1"].Value = "Điện thoại";
+					Sheet.Cells["C1"].Value = "Email";
+					Sheet.Cells["D1"].Value = "Chức vụ";
+					Sheet.Cells["E1"].Value = "Ngành nghề";
+					Sheet.Cells["F1"].Value = "Quy mô";
+
+					Sheet.Cells["G1"].Value = "Thực hiện Survey";
+					Sheet.Cells["H1"].Value = "Số lần Open Email";
+					Sheet.Cells["I1"].Value = "Số lần truy cập";
+					Sheet.Cells["J1"].Value = "Số lần Download";
+					Sheet.Cells["K1"].Value = "Số lần đăng ký hội thảo";
+					Sheet.Cells["L1"].Value = "Số lần dự hội thảo";
+					Sheet.Cells["M1"].Value = "Số lần dùng thử";
+					Sheet.Cells["N1"].Value = "Số lần tư vấn";
+
+					Sheet.Cells["O1"].Value = "Đăng ký Newsletter";
+					Sheet.Cells["P1"].Value = "Tương tác qua Messenger";
+					Sheet.Cells["Q1"].Value = "Chủ đề ACT";
+					Sheet.Cells["R1"].Value = "Chủ đề CRM";
+					Sheet.Cells["S1"].Value = "Chủ đề HRM";
+					Sheet.Cells["T1"].Value = "Chủ đề BIL";
+					Sheet.Cells["U1"].Value = "Chủ đề RTL";
+					Sheet.Cells["V1"].Value = "Chủ đề MGM";
+					Sheet.Cells["W1"].Value = "Lead Scoring";
+
+					Sheet.Cells["A1:W1"].Style.Fill.PatternType = ExcelFillStyle.Solid;
+					Sheet.Cells["A1:W1"].Style.Font.Bold = true;
+					Sheet.Cells["A1:C1"].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(222, 234, 246));
+					Sheet.Cells["D1:F1"].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(244, 176, 131));
+					Sheet.Cells["G1:N1"].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(251, 228, 213));
+					Sheet.Cells["O1:P1"].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(255, 192, 0));
+					Sheet.Cells["Q1:V1"].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(226, 239, 217));
+					Sheet.Cells["W1:W1"].Style.Fill.BackgroundColor.SetColor(Color.FromArgb(255, 0, 0));
+
+					int row = 2;// dòng bắt đầu ghi dữ liệu
+					foreach (var item in data.Items)
+					{
+						Sheet.Cells[string.Format("A{0}", row)].Value = item.FullName;
+						Sheet.Cells[string.Format("B{0}", row)].Value = item.Phone;
+						Sheet.Cells[string.Format("C{0}", row)].Value = item.Email;
+						Sheet.Cells[string.Format("D{0}", row)].Value = item.Position;
+						Sheet.Cells[string.Format("E{0}", row)].Value = item.Career;
+						Sheet.Cells[string.Format("F{0}", row)].Value = item.Scale;
+						Sheet.Cells[string.Format("G{0}", row)].Value = item.DoSurvey;
+						Sheet.Cells[string.Format("H{0}", row)].Value = item.OpenEmailNumber;
+						Sheet.Cells[string.Format("I{0}", row)].Value = item.VisitNumber;
+						Sheet.Cells[string.Format("J{0}", row)].Value = item.DownloadNumber;
+						Sheet.Cells[string.Format("K{0}", row)].Value = item.SeminarRegisterNumber;
+						Sheet.Cells[string.Format("L{0}", row)].Value = item.SeminarVisitNumber;
+						Sheet.Cells[string.Format("M{0}", row)].Value = item.TrialNumber;
+						Sheet.Cells[string.Format("N{0}", row)].Value = item.AdvisoryNumber;
+						Sheet.Cells[string.Format("O{0}", row)].Value = ConvertBoolenToString(item.NewsletterRegister);
+						Sheet.Cells[string.Format("P{0}", row)].Value = ConvertBoolenToString(item.MessengerInteration);
+						Sheet.Cells[string.Format("Q{0}", row)].Value = ConvertBoolenToString(item.ACT_Topic);
+						Sheet.Cells[string.Format("R{0}", row)].Value = ConvertBoolenToString(item.CRM_Topic);
+						Sheet.Cells[string.Format("S{0}", row)].Value = ConvertBoolenToString(item.HRM_Topic);
+						Sheet.Cells[string.Format("T{0}", row)].Value = ConvertBoolenToString(item.BIL_Topic);
+						Sheet.Cells[string.Format("U{0}", row)].Value = ConvertBoolenToString(item.RTL_Topic);
+						Sheet.Cells[string.Format("V{0}", row)].Value = ConvertBoolenToString(item.MGM_Topic);
+						Sheet.Cells[string.Format("W{0}", row)].Value = item.Lead_Scoring;
+						Sheet.Cells[string.Format("W{0}", row)].Style.Font.Bold = true;
+						row++;
+					}
+
+					Sheet.Cells.Style.Border.Top.Style = ExcelBorderStyle.Thin;
+					Sheet.Cells.Style.Border.Bottom.Style = ExcelBorderStyle.Thin;
+					Sheet.Cells.Style.Border.Left.Style = ExcelBorderStyle.Thin;
+					Sheet.Cells.Style.Border.Right.Style = ExcelBorderStyle.Thin;
+
+					Sheet.Cells["A:AZ"].AutoFitColumns();
+					Response.Clear();
+					Response.ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+					string fileName = "Export_" + DateTime.Now.ToString("ddMMyyyyHHmmss") + ".xlsx";
+					Response.AddHeader("content-disposition", "attachment; filename=" + fileName);
+					Response.BinaryWrite(ep.GetAsByteArray());
+					Response.End();
+				}
+			}
+		}
+	}
+	catch (Exception ex)
+	{
+		CommonFunctionLogging.HandleException(ex);
+	}
+}
