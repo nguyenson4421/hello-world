@@ -2056,3 +2056,281 @@ public void ExportLeadScoring()
 		CommonFunctionLogging.HandleException(ex);
 	}
 }
+
+################################BLLeadScoring.cs
+
+/// <summary>
+/// Hàm xử lý đồng bộ danh sách điểm khách hàng
+/// </summary>
+/// <param name="employees">danh sách nhân viên cần đồng bộ</param>
+/// <returns>True: thành công, False thất bại</returns>
+/// Created by: NTSON - 10/09/2021
+public bool SynchronizedLeadScoring(List<LeadScoring> leadScoring)
+{
+	var result = false;
+	string employeeCode = SessionUtilitis.GetSession(Constant.mscSessionEmployeeCode).ToString();
+	if (leadScoring != null && leadScoring.Count > 0)
+	{
+		using (var connectionHelper = new ConnectionHelperDL())
+		{
+			var conn = connectionHelper.Conn;
+			var ts = conn.BeginTransaction();
+			try
+			{
+				foreach (var item in leadScoring)
+				{
+					item.CreatedBy = employeeCode;
+					item.ModifiedBy = employeeCode;
+					item.CreatedDate = DateTime.Now;
+					item.ModifiedDate = DateTime.Now;
+					result = _DLLeadScoring.SynchronizedLeadScoring(item, conn, ts);
+					if (!result)
+					{
+						break;
+					}
+				}
+
+				if (ts != null)
+				{
+					if (result)
+					{
+						ts.Commit();
+					}
+					else
+					{
+						ts.Rollback();
+					}
+					ts.Dispose();
+				}
+			}
+			catch (Exception ex)
+			{
+				result = false;
+				if (ts != null)
+				{
+					ts.Rollback();
+				}
+				CommonFunctionLogging.HandleException(ex);
+			}
+		}
+	}
+	return result;
+}
+
+################################DLLeadScoring.cs
+
+ public bool SynchronizedLeadScoring(LeadScoring leadScoring, SqlConnection conn, SqlTransaction ts)
+{
+	return this.ExecuteNonQuery("dbo.Proc_SynchronizedLeadScoring", leadScoring, conn, ts) > 0;
+}
+
+
+################################CommonFunctionLogging.cs
+
+namespace MISA.EventManager.Common
+{
+    /// <summary>
+    /// Khởi tạo hàm thực hiện ghi log
+    /// </summary>
+    /// Created by: NTSON - 10/09/2021
+    public class CommonFunctionLogging
+    {
+
+        static CommonFunctionLogging()
+        {
+            LogManager.Configuration = new XmlLoggingConfiguration(AppDomain.CurrentDomain.BaseDirectory + "/NLog.config");
+        }
+
+        #region ConfigLog
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger m_ErrorLog;
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger ErrorLog
+        {
+            get
+            {
+                try
+                {
+                    if (m_ErrorLog == null)
+                    {
+                        m_ErrorLog = LogManager.GetLogger("ErrorLog");
+                    }
+                    InitLogVariable();
+                    return m_ErrorLog;
+                }
+                catch (Exception)
+                {
+                }
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger m_AuditingLog;
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger AuditingLog
+        {
+            get
+            {
+                try
+                {
+                    if (m_AuditingLog == null)
+                    {
+                        m_AuditingLog = LogManager.GetLogger("AuditingLog");
+                    }
+                    InitLogVariable();
+                    return m_AuditingLog;
+                }
+                catch (Exception)
+                {
+                }
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Hàm ghi log người dùng
+        /// </summary>
+        /// <param name="ErrorMessage"></param>
+        public static void HandleAuditingLog(string ErrorMessage)
+        {
+            if (AuditingLog != null)
+            {
+                AuditingLog.Error(ErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger m_APIErrorLog;
+        /// <summary>
+        /// Config log error
+        /// </summary>
+        private static Logger APIErrorLog
+        {
+            get
+            {
+                try
+                {
+                    if (m_APIErrorLog == null)
+                    {
+                        m_APIErrorLog = LogManager.GetLogger("APIErrorLog");
+                    }
+                    InitLogVariable();
+                    return m_APIErrorLog;
+                }
+                catch (Exception)
+                {
+                }
+                return null;
+            }
+        }
+
+
+
+        /// <summary>
+        /// Đặt custom variable cho logger
+        /// </summary>
+        private static void InitLogVariable()
+        {
+            //LogManager.Configuration.Variables["UserName"] = UrlHelper.UserName;
+            //LogManager.Configuration.Variables["CompanyCode"] = UrlHelper.CompanyCode;
+        }
+        #endregion
+
+        #region DoLog
+
+
+        /// <summary>
+        /// Thực hiện log error
+        /// </summary>
+        /// <param name="ErrorMessage">Thông tin lỗi</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void APIErrorLogging(string ErrorMessage)
+        {
+            if (APIErrorLog != null)
+            {
+                APIErrorLog.Error(ErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Thực hiện log exceltion
+        /// </summary>
+        /// <param name="ex">Exception</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void HandleAPIException(Exception ex)
+        {
+            APIErrorLogging(ex.Message + Environment.NewLine + ex.StackTrace);
+        }
+
+        /// <summary>
+        /// Thực hiện log error
+        /// </summary>
+        /// <param name="ErrorMessage">Thông tin lỗi</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void ErrorLogging(string ErrorMessage)
+        {
+            if (ErrorLog != null)
+            {
+                ErrorLog.Error(ErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Thực hiện log exceltion
+        /// </summary>
+        /// <param name="ex">Exception</param>
+        /// Created by: NTSON - 10/09/2021
+        public static void HandleException(Exception ex)
+        {
+            ErrorLogging(ex.Message + Environment.NewLine + ex.StackTrace);
+        }
+
+        #endregion
+    }
+}
+
+############################NLog.config
+
+<?xml version="1.0" encoding="utf-8" ?>
+<nlog xmlns="http://www.nlog-project.org/schemas/NLog.xsd"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.nlog-project.org/schemas/NLog.xsd NLog.xsd"
+      autoReload="true"
+      throwExceptions="false"
+      internalLogLevel="Off" internalLogFile="c:\temp\nlog-internal.log">
+
+	<variable name="myvar" value="myvalue"/>
+
+	<targets async="true">
+		<target name="ErrorLog" xsi:type="File" fileName="${basedir}/Log/Error/${date:format=ddMMyyyy}.log" archiveEvery="Day" layout="${date:format=HH.mm.ss}: ${message}" createDirs="true" encoding="UTF-8"/>
+		<target name="AuditingLog" xsi:type="File" fileName="${basedir}/Log/Auditing/${date:format=ddMMyyyy}.log" archiveEvery="Day" layout="${date:format=HH.mm.ss}: ${message}" createDirs="true" encoding="UTF-8"/>
+		<!--<target xsi:type="Database" name="ErrorLog" dbProvider="System.Data.SqlClient" connectionStringName="ManagementDatabase" commandType="StoredProcedure" commandText="dbo.Proc_InsertLogs">
+			<parameter name="@LogMessage" layout="${message}" />
+			<parameter name="@LogType" type="System.String" layout="${logger}" />
+		</target>
+		<target xsi:type="Database" name="AuditingLog" dbProvider="System.Data.SqlClient" connectionStringName="ManagementDatabase" commandType="StoredProcedure" commandText="dbo.Proc_InsertLogs">
+			<parameter name="@LogMessage" layout="${message}" />
+			<parameter name="@LogType" type="System.String" layout="${logger}" />
+		</target>-->
+	</targets>
+
+	<rules>
+		<!--<logger name="*" minlevel="Info" writeTo="logfile"/>-->
+		<logger name="ErrorLog" minlevel="Info" writeTo="ErrorLog"/>
+		<logger name="AuditingLog" minlevel="Info" writeTo="AuditingLog"/>
+	</rules>
+</nlog>
